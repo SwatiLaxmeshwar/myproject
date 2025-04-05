@@ -1,79 +1,88 @@
-<!-- This is the markdown template for the final project of the Building AI course, 
-created by Reaktor Innovations and University of Helsinki. 
-Copy the template, paste it to your GitHub README and edit! -->
+import os
+import streamlit as st
+import PyPDF2
+import joblib
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+import pandas as pd
 
-# Project Title
+# ----- Step 1: Load or Train the Model -----
+@st.cache_resource
 
-Final project for the Building AI course
+def train_or_load_model():
+    if os.path.exists("model.joblib") and os.path.exists("vectorizer.joblib"):
+        model = joblib.load("model.joblib")
+        vectorizer = joblib.load("vectorizer.joblib")
+    else:
+        # Sample training data
+        data = [
+            ("This is a resume with work experience and skills.", "Resume"),
+            ("Invoice number 2345, due date, and total amount.", "Invoice"),
+            ("This contract is entered into by and between parties.", "Contract"),
+            ("Abstract, introduction, and methodology of research.", "Research Paper"),
+            ("Receipt for your payment of $23.00.", "Receipt"),
+        ] * 10  # Duplicate to simulate a small dataset
 
-## Summary
+        df = pd.DataFrame(data, columns=["text", "label"])
+        X_train, X_test, y_train, y_test = train_test_split(df["text"], df["label"], test_size=0.2, random_state=42)
 
-Describe briefly in 2-3 sentences what your project is about. About 250 characters is a nice length! 
+        vectorizer = TfidfVectorizer()
+        clf = LogisticRegression()
+        X_train_vec = vectorizer.fit_transform(X_train)
+        clf.fit(X_train_vec, y_train)
 
+        # Save model
+        joblib.dump(clf, "model.joblib")
+        joblib.dump(vectorizer, "vectorizer.joblib")
 
-## Background
+        model = clf
 
-Which problems does your idea solve? How common or frequent is this problem? What is your personal motivation? Why is this topic important or interesting?
+        # Print classification report (optional)
+        X_test_vec = vectorizer.transform(X_test)
+        y_pred = model.predict(X_test_vec)
+        print(classification_report(y_test, y_pred))
 
-This is how you make a list, if you need one:
-* problem 1
-* problem 2
-* etc.
-
-
-## How is it used?
-
-Describe the process of using the solution. In what kind situations is the solution needed (environment, time, etc.)? Who are the users, what kinds of needs should be taken into account?
-
-Images will make your README look nice!
-Once you upload an image to your repository, you can link link to it like this (replace the URL with file path, if you've uploaded an image to Github.)
-![Cat](https://upload.wikimedia.org/wikipedia/commons/5/5e/Sleeping_cat_on_her_back.jpg)
-
-If you need to resize images, you have to use an HTML tag, like this:
-<img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Sleeping_cat_on_her_back.jpg" width="300">
-
-This is how you create code examples:
-```
-def main():
-   countries = ['Denmark', 'Finland', 'Iceland', 'Norway', 'Sweden']
-   pop = [5615000, 5439000, 324000, 5080000, 9609000]   # not actually needed in this exercise...
-   fishers = [1891, 2652, 3800, 11611, 1757]
-
-   totPop = sum(pop)
-   totFish = sum(fishers)
-
-   # write your solution here
-
-   for i in range(len(countries)):
-      print("%s %.2f%%" % (countries[i], 100.0))    # current just prints 100%
-
-main()
-```
+    return model, vectorizer
 
 
-## Data sources and AI methods
-Where does your data come from? Do you collect it yourself or do you use data collected by someone else?
-If you need to use links, here's an example:
-[Twitter API](https://developer.twitter.com/en/docs)
-
-| Syntax      | Description |
-| ----------- | ----------- |
-| Header      | Title       |
-| Paragraph   | Text        |
-
-## Challenges
-
-What does your project _not_ solve? Which limitations and ethical considerations should be taken into account when deploying a solution like this?
-
-## What next?
-
-How could your project grow and become something even more? What kind of skills, what kind of assistance would you  need to move on? 
+# ----- Step 2: PDF/Text Processing -----
+def extract_text_from_pdf(file):
+    reader = PyPDF2.PdfReader(file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text()
+    return text
 
 
-## Acknowledgments
+# ----- Step 3: Streamlit UI -----
+st.set_page_config(page_title="SmartScanner AI", layout="centered")
+st.title("📄 SmartScanner – Document Type Classifier")
 
-* list here the sources of inspiration 
-* do not use code, images, data etc. from others without permission
-* when you have permission to use other people's materials, always mention the original creator and the open source / Creative Commons licence they've used
-  <br>For example: [Sleeping Cat on Her Back by Umberto Salvagnin](https://commons.wikimedia.org/wiki/File:Sleeping_cat_on_her_back.jpg#filelinks) / [CC BY 2.0](https://creativecommons.org/licenses/by/2.0)
-* etc
+model, vectorizer = train_or_load_model()
+
+uploaded_file = st.file_uploader("Upload a PDF or TXT file", type=["pdf", "txt"])
+if uploaded_file:
+    if uploaded_file.type == "application/pdf":
+        text = extract_text_from_pdf(uploaded_file)
+    else:
+        text = uploaded_file.read().decode("utf-8")
+
+    if text:
+        st.subheader("Extracted Text (First 500 chars)")
+        st.text(text[:500] + ("..." if len(text) > 500 else ""))
+
+        # Predict
+        X_input = vectorizer.transform([text])
+        prediction = model.predict(X_input)[0]
+        confidence = max(model.predict_proba(X_input)[0])
+
+        st.success(f"Predicted Document Type: **{prediction}**")
+        st.info(f"Confidence Score: {confidence:.2f}")
+    else:
+        st.warning("Couldn't extract text from file.")
+
+
+  
